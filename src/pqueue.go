@@ -2,67 +2,57 @@ package astar
 
 import (
 	"container/heap"
-	//"fmt"
 )
 
-
-// A PriorityQueue implements heap.Interface and holds Items.
-type PriorityQueue []*Node
-
-
-/* sort.Interface */
-func (pq PriorityQueue) Len() int {
-	return len(pq)
+type PriorityQueue struct {
+	pos  int
+	node map[int]*Node
 }
 
-func (pq PriorityQueue) Less(i, j int) bool {
-	// We want Pop to give us the lowest, not highest, priority so we use smaller than here.
-    return pq[i].f < pq[j].f
+func newPriorityQueue() *PriorityQueue {
+	p := new(PriorityQueue)
+	p.node = make(map[int]*Node)
+	return p
 }
 
-func (pq PriorityQueue) Swap(i, j int) {
-    pq[i], pq[j] = pq[j], pq[i]
-    pq[i].heap_index = i
-    pq[j].heap_index = j
+func (p PriorityQueue) Len() int {
+	return len(p.node)
 }
 
-/* heap.interface */
-func (pq *PriorityQueue) Push(x interface{}) {
-    // Push and Pop use pointer receivers because they modify the slice's length,
-    // not just its contents.
-    // To simplify indexing expressions in these methods, we save a copy of the
-    // slice object. We could instead write (*pq)[i].
-    a := *pq
-    n := len(a)
-    a = a[0 : n+1]
-    item := x.(*Node)
-    item.heap_index = n
-    a[n] = item
-    *pq = a
+func (p PriorityQueue) Less(i, j int) bool {
+	return p.node[i].f < p.node[j].f
 }
 
-func (pq *PriorityQueue) Pop() interface{} {
-    a := *pq
-    n := len(a)
-    item := a[n-1]
-    item.heap_index = -1 // for safety
-    *pq = a[0 : n-1]
-    return item
+func (p PriorityQueue) Swap(i, j int) {
+	p.node[i], p.node[j] = p.node[j], p.node[i]
+	p.node[i].heap_index = i
+	p.node[j].heap_index = j
 }
 
-
-
-/* Node */
-
-func (pq *PriorityQueue) PushNode(n *Node) {
-		heap.Push(pq, n)
+func (p *PriorityQueue) Push(x interface{}) {
+	item, ok := x.(*Node)
+	if ok {
+		item.heap_index = p.pos
+		p.node[p.pos] = item
+		p.pos++
+	}
 }
 
-func (pq *PriorityQueue) PopNode() (*Node) {
-		return heap.Pop(pq).(*Node)
+func (p *PriorityQueue) Pop() interface{} {
+	p.pos--
+	item := p.node[p.pos]
+	delete(p.node, p.pos)
+	return item
 }
 
+func (p *PriorityQueue) PushNode(n *Node) {
+	heap.Push(p, n)
+}
 
-func (pq *PriorityQueue) RemoveNode(n *Node) {
-	heap.Remove(pq, n.heap_index)
+func (p *PriorityQueue) PopNode() *Node {
+	return heap.Pop(p).(*Node)
+}
+
+func (p *PriorityQueue) RemoveNode(n *Node) {
+	heap.Remove(p, n.heap_index)
 }
