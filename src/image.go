@@ -8,6 +8,12 @@ import (
 
 import _ "image/png"
 
+type MapData map[int]bool
+
+func NewMapData() MapData {
+	return make(MapData)
+}
+
 func openImage(filename string) image.Image {
 	f, err := os.Open(filename)
 	if err != nil {
@@ -23,17 +29,17 @@ func parseImage(img image.Image) MapData {
 
 	bounds := img.Bounds()
 	fmt.Printf("width = %v, height = %v\n", bounds.Max.Y, bounds.Max.X)
-	map_data := NewMapData(bounds.Max.X, bounds.Max.Y)
+	map_data := NewMapData()
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			r, g, b, a := img.At(x, y).RGBA()
-
+			key := x + bounds.Max.X*y
 			if r == max && g == max && b == max && a == max {
-				map_data[x][bounds.Max.Y-1-y] = LAND
+				map_data[key] = true
 				//fmt.Printf(".")
 			} else {
-				map_data[x][bounds.Max.Y-1-y] = WALL
+				map_data[key] = false
 				//fmt.Printf("#")
 			}
 		}

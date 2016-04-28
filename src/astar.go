@@ -37,6 +37,7 @@ const (
 )
 
 const (
+	DirStart     = 0
 	DirUp        = -MapWidth
 	DirDown      = MapWidth
 	DirLeft      = -1
@@ -62,30 +63,18 @@ func initDirCost() map[int]int {
 	}
 }
 
-func str_map(data MapData, nodes []*Node) string {
+func str_map(data MapData) string {
 	var result string
-	for i, row := range data {
-		for j, cell := range row {
-			added := false
-			for _, node := range nodes {
-				if node.X == i && node.Y == j {
-					result += "o"
-					added = true
-					break
-				}
-			}
-			if !added {
-				switch cell {
-				case LAND:
-					result += "."
-				case WALL:
-					result += "#"
-				default:
-					result += "?"
-				}
-			}
+	max := len(data)
+	for i := 0; i < max; i++ {
+		if i%10 == 0 {
+			result += "\n"
 		}
-		result += "\n"
+		if data[i] {
+			result += "."
+		} else {
+			result += "#"
+		}
 	}
 	return result
 }
@@ -93,6 +82,7 @@ func str_map(data MapData, nodes []*Node) string {
 type Node struct {
 	pos        int
 	parent     *Node
+	dir        int
 	f, g, h    int
 	heap_index int
 }
@@ -117,7 +107,7 @@ func (n nodeList) getNode(pos int) *Node {
 	return n[pos]
 }
 
-func (n nodeList) removeNode(pos) {
+func (n nodeList) removeNode(pos int) {
 	delete(n, pos)
 }
 
@@ -143,12 +133,12 @@ func retracePath(current_node *Node) []*Node {
 	return path
 }
 
-func Heuristic(tile, stop *Node) (h int) {
-	h_diag := min(abs(tile.X-stop.X), abs(tile.Y-stop.Y))
-	h_stra := abs(tile.X-stop.X) + abs(tile.Y-stop.Y)
-	h = COST_DIAGONAL*h_diag + COST_STRAIGHT*(h_stra-2*h_diag)
-	return
-}
+// func Heuristic(tile, stop *Node) (h int) {
+// 	h_diag := min(abs(tile.X-stop.X), abs(tile.Y-stop.Y))
+// 	h_stra := abs(tile.X-stop.X) + abs(tile.Y-stop.Y)
+// 	h = COST_DIAGONAL*h_diag + COST_STRAIGHT*(h_stra-2*h_diag)
+// 	return
+// }
 
 type World struct {
 	rwLock *sync.RWMutex
@@ -178,67 +168,92 @@ func (w World) setPass(id int, b bool) {
 	w.rwLock.Unlock()
 }
 
-func (w World) Astar(start, stop int, isChase bool) []*Node {
+func (w World) Jps(start, stop int) []*Node {
 	closedSet := newNodeList()
-	openSet := newNodeList()
 	pq := newPriorityQueue()
-
 	startNode := NewNode(start)
-	openSet.addNode(startNode)
+	startNode.dir = DirStart
 	pq.PushNode(startNode)
-
-	for openSet.len() != 0 {
+	for pq.Len() != 0 {
 		current := pq.PopNode()
-		openSet.removeNode(current.pos)
-		closedSet.addNode(current)
-
-		if current.pos == stop {
-			return retracePath(current)
-		} else {
-			for _, adir := range adjecentDirs {
-				x, y := (current.X + adir[0]), (current.Y + adir[1])
-
-				if (x < 0) || (x >= rows) || (y < 0) || (y >= cols) {
-					continue
+		if !closedSet.hasNode(current.pos) {
+			closedSet.addNode(current)
+			jump := w.searchJumpPoint(current, stop)
+			for _, n := range jump {
+				if n.pos == stop {
+					return retracePath(n)
+				} else {
+					pq.PushNode(n)
 				}
-
-				neighbor := graph.Node(x, y)
-				if neighbor == nil || closedSet.hasNode(neighbor) {
-					continue
-				}
-
-				g_score := current.g + adir[2]
-
-				if !openSet.hasNode(neighbor) {
-					neighbor.parent = current
-					neighbor.g = g_score
-					neighbor.f = neighbor.g + Heuristic(neighbor, stop)
-					openSet.addNode(neighbor)
-					pq.PushNode(neighbor)
-				} else if g_score < neighbor.g {
-					pq.RemoveNode(neighbor)
-					neighbor.parent = current
-					neighbor.g = g_score
-					neighbor.f = neighbor.g + Heuristic(neighbor, stop)
-					pq.PushNode(neighbor)
-				}
-
 			}
 		}
 	}
-	return nil
+	return []*Node{}
 }
 
-func (w World) searchJumpPoint(node *Node, dir int, stop int) (*Node, bool) {
-	for next := node.pos + dir; ; next += dir {
-		if next == stop || w.isJumpPoint(next, dir) {
-			jump := NewNode(next)
-			jump.parent = node
-			jump.f = gradeDistance(next, node.pos, dir) + heuristicDistance(next, stop)
-			return jump, true
+var jumpSearchDir = map[int]([]int){
+	DirStart: []int{DirLeft, DirLeftUp, DirUp, DirRightUp, DirRight, DirRightDown, DirDown, DirLeftDown},
+	DirUp:    []int{DirLeft, DirLeftUp, DirUp, DirRightUp, DirRight},
+
+	DirDown: []int{DirLeft, DirLeftDown, DirDown, DirRightDown, DirRight},
+
+	DirLeft: []int{DirUp, DirLeftUp, DirLeft, DirLeftDown, DirDown},
+
+	DirRight: []int{DirUp, DirRightUp, DirRight, DirRightDown, DirDown},
+
+	DirLeftUp: []int{DirRightUp, DirUp, DirLeftUp, DirLeft, DirLeftDown},
+
+	DirLeftDown: []int{DirLeftUp, DirLeft, DirLeftDown, DirDown, DirRightDown},
+
+	DirRightUp: []int{DirLeftUp, DirUp, DirRightUp, DirRight, DirRightDown},
+
+	DirRightDown: []int{DirRightUp, DirRight, DirRightDown, DirDown, DirLeftDown},
+}
+
+func (w World) searchJumpPoint(node *Node, stop int) (jump []*Node) {
+	for _, dir := range jumpSearchDir[node.dir] {
+		res, ok := w.searchJumpPointDir(node, dir, stop)
+		fmt.Println(dir, res, ok)
+		if ok {
+			for _, n := range res {
+				jump = append(jump, n)
+			}
 		}
 	}
-	return nil, false
+	return
+}
+
+func (w World) searchJumpPointDir(node *Node, dir int, stop int) (res []*Node, isFind bool) {
+	gVale := adjecentDirs[dir]
+	next := NewNode(node.pos + dir)
+	next.g = node.g + gVale
+	next.dir = dir
+	next.parent = node
+	for {
+		if next.pos == stop {
+			next.h = heuristicDistance(next.pos, stop)
+			next.f = next.g + next.f
+			res = append(res, next)
+			isFind = true
+			return
+		} else {
+			if w.isPass(next.pos) {
+				nextJump, ok := w.nextJumpPoint(next, dir, stop)
+				if ok {
+					for _, n := range nextJump {
+						res = append(res, n)
+					}
+					isFind = true
+					return
+				}
+			} else {
+				return
+			}
+		}
+		next.pos += dir
+		next.g += gVale
+	}
+	return
 }
 
 func heuristicDistance(cur int, stop int) int {
@@ -254,16 +269,180 @@ func gradeDistance(parent int, cur int, dir int) int {
 	return (cur - parent) / dir * cost
 }
 
-func (w World) isJumpPoint(pos int, dir int) bool {
+func (w World) nextJumpPoint(node *Node, dir int, stop int) ([]*Node, bool) {
 	switch dir {
 	case DirUp:
-
+		return w.nextJumpPointUp(node, stop)
 	case DirDown:
+		return w.nextJumpPointDown(node, stop)
 	case DirLeft:
+		return w.nextJumpPointLeft(node, stop)
 	case DirRight:
+		return w.nextJumpPointRight(node, stop)
 	case DirLeftUp:
+		return w.nextJumpPointLeftUp(node, stop)
 	case DirLeftDown:
+		return w.nextJumpPointLeftDown(node, stop)
 	case DirRightUp:
+		return w.nextJumpPointRightUp(node, stop)
 	case DirRightDown:
+		return w.nextJumpPointRightDown(node, stop)
+	default:
+		return []*Node{}, false
 	}
 }
+
+func (w World) nextJumpPointUp(node *Node, stop int) (res []*Node, ok bool) {
+	if w.isJumpPointUp(node.pos) {
+		res = append(res, node)
+		ok = true
+	}
+	return
+}
+
+func (w World) nextJumpPointDown(node *Node, stop int) (res []*Node, ok bool) {
+	if w.isJumpPointDown(node.pos) {
+		res = append(res, node)
+		ok = true
+	}
+	return
+}
+
+func (w World) nextJumpPointLeft(node *Node, stop int) (res []*Node, ok bool) {
+	if w.isJumpPointLeft(node.pos) {
+		res = append(res, node)
+		ok = true
+	}
+	return
+}
+
+func (w World) nextJumpPointRight(node *Node, stop int) (res []*Node, ok bool) {
+	if w.isJumpPointRight(node.pos) {
+		res = append(res, node)
+		ok = true
+	}
+	return
+}
+
+func (w World) isJumpPointUp(cur int, stop int) bool {
+	return cur == stop ||
+		w.isPass(cur+DirLeftUp) && (!w.isPass(cur+DirLeft)) ||
+		w.isPass(cur+DirRightUp) && (!w.isPass(cur+DirRight))
+}
+
+func (w World) isJumpPointDown(cur int, stop int) bool {
+	return cur == stop ||
+		w.isPass(cur+DirLeftDown) && (!w.isPass(cur+DirLeft)) ||
+		w.isPass(cur+DirRightDown) && (!w.isPass(cur+DirRight))
+}
+
+func (w World) isJumpPointRight(cur int, stop int) bool {
+	return cur == stop ||
+		w.isPass(cur+DirRightUp) && (!w.isPass(cur+DirUp)) ||
+		w.isPass(cur+DirRightDown) && (!w.isPass(cur+DirDown))
+}
+
+func (w World) isJumpPointLeft(cur int, stop int) bool {
+	return cur == stop ||
+		w.isPass(cur+DirLeftUp) && (!w.isPass(cur+DirUp)) ||
+		w.isPass(cur+DirLeftDown) && (!w.isPass(cur+DirDown))
+}
+
+func (w World) isJumpPointRightUp(cur *Node, stop int) bool {
+	return w.isJumpPointRight(cur, stop) || w.isJumpPointUp(cur, stop)
+}
+
+func (w World) isJumpPointRightDown(cur *Node, stop int) bool {
+	return w.isJumpPointRight(cur, stop) || w.isJumpPointDown(cur, stop)
+}
+
+func (w World) isJumpPointLeftUp(cur *Node, stop int) bool {
+	return w.isJumpPointRight(cur, stop) || w.isJumpPointUp(cur, stop)
+}
+func (w World) isJumpPointLeftDown(cur *Node, stop int) bool {
+	return w.isJumpPointLeft(cur, stop) || w.isJumpPointDown(cur, stop)
+}
+
+func (w World) nextJumpPointLeftDown(cur *Node, stop int) (res []*Node, isFind bool) {
+	jumpRight, ok1 := w.searchJumpPointDir(cur, DirRight, stop)
+	if ok1 {
+		isFind = true
+		res = append(res, jr[0])
+
+	}
+	jumpUp, ok2 := w.searchJumpPointDir(cur, DirUp, stop)
+	if ok2 {
+		isFind = true
+		res = append(res, ju[0])
+	}
+	if w.isJumpPointRightUp(cur, stop) {
+		isFind = true
+		res = append(res, cur)
+	}
+	return
+}
+
+func (w World) nextJumpPointRightDown(cur *Node, stop int) (res []*Node, isFind bool) {
+	jumpRight, ok1 := w.searchJumpPointDir(cur, DirRight, stop)
+	if ok1 {
+		isFind = true
+		res = append(res, jr[0])
+	}
+
+	jumpDown, ok2 := w.searchJumpPointDir(cur, DirDown, stop)
+	if ok2 {
+		isFind = true
+		res = append(res, jd[0])
+	}
+	if w.isJumpPointRightDown(cur, stop) {
+		isFind = true
+		res = append(res, cur)
+	}
+	return
+}
+
+func (w World) nextJumpPointLeftUp(cur *Node, stop int) (res []*Node, ok bool) {
+	jumpLeft, ok1 := w.searchJumpPointDir(cur, DirLeft, stop)
+	if ok {
+		for _, jl := range jumpLeft {
+			res = append(res, jl)
+		}
+	}
+
+	jumpUp, ok2 := w.searchJumpPointDir(cur, DirUp, stop)
+	if ok {
+		for _, ju := range jumpUp {
+			res = append(res, ju)
+		}
+	}
+	ok = ok1 || ok2
+	return
+}
+
+func (w World) nextJumpPointLeftDown(cur *Node, stop int) (res []*Node, ok bool) {
+	jumpLeft, ok1 := w.searchJumpPointDir(cur, DirLeft, stop)
+	if ok {
+		for _, jl := range jumpLeft {
+			res = append(res, jl)
+		}
+	}
+
+	jumpDown, ok2 := w.searchJumpPointDir(cur, DirDown, stop)
+	if ok {
+		for _, jd := range jumpDown {
+			res = append(res, jd)
+		}
+	}
+	ok = ok1 || ok2
+	return
+}
+
+// func makeJumpPoint(cur c, parent int, dir int, stop int) *Node {
+// 	jump := NewNode(cur)
+// 	jump.parent = parent
+// 	jump.dir = dir
+// 	jump.g = gradeDistance(cur, parent, dir)
+// 	jump.h = heuristicDistance(cur, stop)
+// 	jump.f = jump.g + jump.h
+// 	return jump
+// }
