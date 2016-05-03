@@ -1,4 +1,4 @@
-package astar
+package jps
 
 import (
 	"fmt"

@@ -1,4 +1,4 @@
-package astar
+package jps
 
 import (
 	"sync"
@@ -161,13 +161,6 @@ func retracePath(current_node *Node) []int {
 	}
 	return path
 }
-
-// func Heuristic(tile, stop *Node) (h int) {
-// 	h_diag := min(abs(tile.X-stop.X), abs(tile.Y-stop.Y))
-// 	h_stra := abs(tile.X-stop.X) + abs(tile.Y-stop.Y)
-// 	h = COST_DIAGONAL*h_diag + COST_STRAIGHT*(h_stra-2*h_diag)
-// 	return
-// }
 
 type World struct {
 	rwLock *sync.RWMutex
