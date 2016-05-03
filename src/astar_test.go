@@ -3,7 +3,7 @@ package astar
 import (
 	"fmt"
 	"testing"
-	// "time"
+	"time"
 )
 
 const (
@@ -14,7 +14,7 @@ const (
 )
 
 func TestPNGReader(t *testing.T) {
-	map_data := GetMapFromImage("../map/map10x10.png")
+	map_data := GetMapFromImage("../map/map100x100.png")
 	if map_data == nil {
 		t.Errorf("Could not open map")
 		return
@@ -24,9 +24,17 @@ func TestPNGReader(t *testing.T) {
 	world.pass = map_data
 
 	fmt.Println(len(map_data))
-	fmt.Println(str_map(map_data))
-	path := world.Jps(1, 99)
+	t1 := time.Now().UnixNano()
+	path := world.Jps(1, 9823)
+	t2 := time.Now().UnixNano()
+	printTime("jps", t1, t2)
 	fmt.Printf("%#v\n", path)
+	fmt.Println(str_map(map_data, path))
+
+	// for _, n := range path {
+	// fmt.Printf("%v>>>", n.pos)
+	// }
+
 	// timeAstarStart := time.Now().UnixNano()
 
 	// nodes_path := Astar(map_data, 0, 0, 799, 599, true)
@@ -57,5 +65,30 @@ func printTime(str string, start int64, end int64) {
 				fmt.Printf("%s  %v ns\n", str, time)
 			}
 		}
+	}
+}
+
+func dirToStr(dir int) string {
+	switch dir {
+	case DirStart:
+		return "DirStart"
+	case DirUp:
+		return "DirUp"
+	case DirDown:
+		return "DirDown"
+	case DirLeft:
+		return "DirLeft"
+	case DirRight:
+		return "DirRight"
+	case DirLeftUp:
+		return "DirLeftUp"
+	case DirLeftDown:
+		return "DirLeftDown"
+	case DirRightUp:
+		return "DirRightUp"
+	case DirRightDown:
+		return "DirRightDown"
+	default:
+		return ""
 	}
 }

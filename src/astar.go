@@ -1,7 +1,6 @@
 package astar
 
 import (
-	"fmt"
 	"sync"
 )
 
@@ -33,47 +32,53 @@ const (
 	COST_STRAIGHT = 1000
 	COST_DIAGONAL = 1414
 
-	MapWidth = 10
+	MapWidth = 100
 )
 
 const (
-	DirStart     = 0
-	DirUp        = -MapWidth
-	DirDown      = MapWidth
-	DirLeft      = -1
-	DirRight     = 1
-	DirLeftUp    = -MapWidth - 1
-	DirLeftDown  = MapWidth - 1
-	DirRightUp   = -MapWidth + 1
-	DirRightDown = MapWidth + 1
+	DirStart = iota
+	DirUp
+	DirDown
+	DirLeft
+	DirRight
+	DirLeftUp
+	DirLeftDown
+	DirRightUp
+	DirRightDown
 )
 
-var adjecentDirs = initDirCost()
-
-func initDirCost() map[int]int {
-	return map[int]int{
-		DirUp:        COST_STRAIGHT,
-		DirDown:      COST_STRAIGHT,
-		DirLeft:      COST_STRAIGHT,
-		DirRight:     COST_STRAIGHT,
-		DirLeftUp:    COST_DIAGONAL,
-		DirLeftDown:  COST_DIAGONAL,
-		DirRightUp:   COST_DIAGONAL,
-		DirRightDown: COST_DIAGONAL,
-	}
+var adjecentDirs = [][3]int{
+	DirUp:        [3]int{-1, 0, COST_STRAIGHT},
+	DirDown:      [3]int{1, 0, COST_STRAIGHT},
+	DirLeft:      [3]int{0, -1, COST_STRAIGHT},
+	DirRight:     [3]int{0, 1, COST_STRAIGHT},
+	DirLeftUp:    [3]int{-1, -1, COST_DIAGONAL},
+	DirLeftDown:  [3]int{1, -1, COST_DIAGONAL},
+	DirRightUp:   [3]int{-1, 1, COST_DIAGONAL},
+	DirRightDown: [3]int{1, 1, COST_DIAGONAL},
 }
 
-func str_map(data MapData) string {
+func str_map(data MapData, path []int) string {
 	var result string
 	max := len(data)
 	for i := 0; i < max; i++ {
-		if i%10 == 0 {
-			result += "\n"
+		var notPath = true
+		for _, p := range path {
+			if p == i {
+				result += "o"
+				notPath = false
+				break
+			}
 		}
-		if data[i] {
-			result += "."
-		} else {
-			result += "#"
+		if notPath {
+			if data[i] {
+				result += "."
+			} else {
+				result += "#"
+			}
+		}
+		if i%MapWidth == MapWidth-1 {
+			result += "\n"
 		}
 	}
 	return result
@@ -81,6 +86,8 @@ func str_map(data MapData) string {
 
 type Node struct {
 	pos        int
+	row        int
+	col        int
 	parent     *Node
 	dir        int
 	f, g, h    int
@@ -90,7 +97,29 @@ type Node struct {
 func NewNode(pos int) *Node {
 	node := new(Node)
 	node.pos = pos
+	node.row = pos / MapWidth
+	node.col = pos % MapWidth
 	return node
+}
+
+func (n *Node) newNext(dir int) *Node {
+	dirValue := adjecentDirs[dir]
+	next := new(Node)
+	next.row = n.row + dirValue[0]
+	next.col = n.col + dirValue[1]
+	next.pos = next.row*MapWidth + next.col
+	next.g = n.g + dirValue[2]
+	next.dir = dir
+	next.parent = n
+	return next
+}
+
+func (n *Node) next() {
+	dirValue := adjecentDirs[n.dir]
+	n.row = n.row + dirValue[0]
+	n.col = n.col + dirValue[1]
+	n.pos = n.row*MapWidth + n.col
+	n.g = n.g + dirValue[2]
 }
 
 type nodeList map[int]*Node
@@ -120,11 +149,11 @@ func (n nodeList) len() int {
 	return len(n)
 }
 
-func retracePath(current_node *Node) []*Node {
-	var path []*Node
-	path = append(path, current_node)
+func retracePath(current_node *Node) []int {
+	var path []int
+	path = append(path, current_node.pos)
 	for current_node.parent != nil {
-		path = append(path, current_node.parent)
+		path = append(path, current_node.parent.pos)
 		current_node = current_node.parent
 	}
 	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
@@ -162,13 +191,25 @@ func (w World) isPass(id int) bool {
 	return b
 }
 
+func (w World) isPassRowCol(row int, col int) bool {
+	if isOutWorld(row, col) {
+		return false
+	} else {
+		return w.isPass(row*MapWidth + col)
+	}
+}
+
+func isOutWorld(row int, col int) bool {
+	return row < 0 || col < 0 || row >= MapWidth || col >= MapWidth
+}
+
 func (w World) setPass(id int, b bool) {
 	w.rwLock.Lock()
 	w.pass[id] = b
 	w.rwLock.Unlock()
 }
 
-func (w World) Jps(start, stop int) []*Node {
+func (w World) Jps(start int, stop int) []int {
 	closedSet := newNodeList()
 	pq := newPriorityQueue()
 	startNode := NewNode(start)
@@ -188,7 +229,7 @@ func (w World) Jps(start, stop int) []*Node {
 			}
 		}
 	}
-	return []*Node{}
+	return []int{}
 }
 
 var jumpSearchDir = map[int]([]int){
@@ -213,7 +254,6 @@ var jumpSearchDir = map[int]([]int){
 func (w World) searchJumpPoint(node *Node, stop int) (jump []*Node) {
 	for _, dir := range jumpSearchDir[node.dir] {
 		res, ok := w.searchJumpPointDir(node, dir, stop)
-		fmt.Println(dir, res, ok)
 		if ok {
 			for _, n := range res {
 				jump = append(jump, n)
@@ -224,23 +264,21 @@ func (w World) searchJumpPoint(node *Node, stop int) (jump []*Node) {
 }
 
 func (w World) searchJumpPointDir(node *Node, dir int, stop int) (res []*Node, isFind bool) {
-	gVale := adjecentDirs[dir]
-	next := NewNode(node.pos + dir)
-	next.g = node.g + gVale
-	next.dir = dir
-	next.parent = node
+	next := node.newNext(dir)
 	for {
 		if next.pos == stop {
-			next.h = heuristicDistance(next.pos, stop)
-			next.f = next.g + next.f
+			next.h = 0
+			next.f = next.g
 			res = append(res, next)
 			isFind = true
 			return
 		} else {
-			if w.isPass(next.pos) {
+			if w.isPassRowCol(next.row, next.col) {
 				nextJump, ok := w.nextJumpPoint(next, dir, stop)
 				if ok {
 					for _, n := range nextJump {
+						n.h = heuristicDistance(n.pos, stop)
+						n.f = n.g + n.h
 						res = append(res, n)
 					}
 					isFind = true
@@ -250,8 +288,7 @@ func (w World) searchJumpPointDir(node *Node, dir int, stop int) (res []*Node, i
 				return
 			}
 		}
-		next.pos += dir
-		next.g += gVale
+		next.next()
 	}
 	return
 }
@@ -265,7 +302,7 @@ func heuristicDistance(cur int, stop int) int {
 }
 
 func gradeDistance(parent int, cur int, dir int) int {
-	cost := adjecentDirs[dir]
+	cost := adjecentDirs[dir][2]
 	return (cur - parent) / dir * cost
 }
 
@@ -293,7 +330,7 @@ func (w World) nextJumpPoint(node *Node, dir int, stop int) ([]*Node, bool) {
 }
 
 func (w World) nextJumpPointUp(node *Node, stop int) (res []*Node, ok bool) {
-	if w.isJumpPointUp(node.pos) {
+	if w.isJumpPointUp(node) {
 		res = append(res, node)
 		ok = true
 	}
@@ -301,7 +338,7 @@ func (w World) nextJumpPointUp(node *Node, stop int) (res []*Node, ok bool) {
 }
 
 func (w World) nextJumpPointDown(node *Node, stop int) (res []*Node, ok bool) {
-	if w.isJumpPointDown(node.pos) {
+	if w.isJumpPointDown(node) {
 		res = append(res, node)
 		ok = true
 	}
@@ -309,7 +346,7 @@ func (w World) nextJumpPointDown(node *Node, stop int) (res []*Node, ok bool) {
 }
 
 func (w World) nextJumpPointLeft(node *Node, stop int) (res []*Node, ok bool) {
-	if w.isJumpPointLeft(node.pos) {
+	if w.isJumpPointLeft(node) {
 		res = append(res, node)
 		ok = true
 	}
@@ -317,65 +354,91 @@ func (w World) nextJumpPointLeft(node *Node, stop int) (res []*Node, ok bool) {
 }
 
 func (w World) nextJumpPointRight(node *Node, stop int) (res []*Node, ok bool) {
-	if w.isJumpPointRight(node.pos) {
+	if w.isJumpPointRight(node) {
 		res = append(res, node)
 		ok = true
 	}
 	return
 }
 
-func (w World) isJumpPointUp(cur int, stop int) bool {
-	return cur == stop ||
-		w.isPass(cur+DirLeftUp) && (!w.isPass(cur+DirLeft)) ||
-		w.isPass(cur+DirRightUp) && (!w.isPass(cur+DirRight))
+func (w World) isJumpPointUp(cur *Node) bool {
+	return w.isPassRowCol(cur.row-1, cur.col-1) && (!w.isPassRowCol(cur.row, cur.col-1)) ||
+		w.isPassRowCol(cur.row-1, cur.col+1) && (!w.isPassRowCol(cur.row, cur.col+1))
 }
 
-func (w World) isJumpPointDown(cur int, stop int) bool {
-	return cur == stop ||
-		w.isPass(cur+DirLeftDown) && (!w.isPass(cur+DirLeft)) ||
-		w.isPass(cur+DirRightDown) && (!w.isPass(cur+DirRight))
+func (w World) isJumpPointDown(cur *Node) bool {
+	return w.isPassRowCol(cur.row+1, cur.col-1) && (!w.isPassRowCol(cur.row, cur.col-1)) ||
+		w.isPassRowCol(cur.row+1, cur.col+1) && (!w.isPassRowCol(cur.row, cur.col+1))
 }
 
-func (w World) isJumpPointRight(cur int, stop int) bool {
-	return cur == stop ||
-		w.isPass(cur+DirRightUp) && (!w.isPass(cur+DirUp)) ||
-		w.isPass(cur+DirRightDown) && (!w.isPass(cur+DirDown))
+func (w World) isJumpPointRight(cur *Node) bool {
+	return w.isPassRowCol(cur.row+1, cur.col+1) && (!w.isPassRowCol(cur.row+1, cur.col)) ||
+		w.isPassRowCol(cur.row-1, cur.col+1) && (!w.isPassRowCol(cur.row-1, cur.col))
 }
 
-func (w World) isJumpPointLeft(cur int, stop int) bool {
-	return cur == stop ||
-		w.isPass(cur+DirLeftUp) && (!w.isPass(cur+DirUp)) ||
-		w.isPass(cur+DirLeftDown) && (!w.isPass(cur+DirDown))
+func (w World) isJumpPointLeft(cur *Node) bool {
+	return w.isPassRowCol(cur.row+1, cur.col-1) && (!w.isPassRowCol(cur.row+1, cur.col)) ||
+		w.isPassRowCol(cur.row-1, cur.col-1) && (!w.isPassRowCol(cur.row-1, cur.col))
 }
 
-func (w World) isJumpPointRightUp(cur *Node, stop int) bool {
-	return w.isJumpPointRight(cur, stop) || w.isJumpPointUp(cur, stop)
+func (w World) isJumpPointRightUp(cur *Node) bool {
+	return w.isJumpPointRight(cur) || w.isJumpPointUp(cur)
 }
 
-func (w World) isJumpPointRightDown(cur *Node, stop int) bool {
-	return w.isJumpPointRight(cur, stop) || w.isJumpPointDown(cur, stop)
+func (w World) isJumpPointRightDown(cur *Node) bool {
+	return w.isJumpPointRight(cur) || w.isJumpPointDown(cur)
 }
 
-func (w World) isJumpPointLeftUp(cur *Node, stop int) bool {
-	return w.isJumpPointRight(cur, stop) || w.isJumpPointUp(cur, stop)
-}
-func (w World) isJumpPointLeftDown(cur *Node, stop int) bool {
-	return w.isJumpPointLeft(cur, stop) || w.isJumpPointDown(cur, stop)
+func (w World) isJumpPointLeftUp(cur *Node) bool {
+	return w.isJumpPointLeft(cur) || w.isJumpPointUp(cur)
 }
 
-func (w World) nextJumpPointLeftDown(cur *Node, stop int) (res []*Node, isFind bool) {
-	jumpRight, ok1 := w.searchJumpPointDir(cur, DirRight, stop)
+func (w World) isJumpPointLeftDown(cur *Node) bool {
+	return w.isJumpPointLeft(cur) || w.isJumpPointDown(cur)
+}
+
+func (w World) nextJumpPointLeftUp(cur *Node, stop int) (res []*Node, isFind bool) {
+	jumpLeft, ok1 := w.searchJumpPointDir(cur, DirLeft, stop)
 	if ok1 {
-		isFind = true
-		res = append(res, jr[0])
-
+		res = append(res, jumpLeft[0])
 	}
 	jumpUp, ok2 := w.searchJumpPointDir(cur, DirUp, stop)
 	if ok2 {
-		isFind = true
-		res = append(res, ju[0])
+		res = append(res, jumpUp[0])
 	}
-	if w.isJumpPointRightUp(cur, stop) {
+	if ok1 || ok2 || w.isJumpPointLeftUp(cur) {
+		isFind = true
+		res = append(res, cur)
+	}
+	return
+}
+
+func (w World) nextJumpPointLeftDown(cur *Node, stop int) (res []*Node, isFind bool) {
+	jumpLeft, ok1 := w.searchJumpPointDir(cur, DirLeft, stop)
+	if ok1 {
+		res = append(res, jumpLeft[0])
+	}
+	jumpDown, ok2 := w.searchJumpPointDir(cur, DirDown, stop)
+	if ok2 {
+		res = append(res, jumpDown[0])
+	}
+	if ok1 || ok2 || w.isJumpPointLeftDown(cur) {
+		isFind = true
+		res = append(res, cur)
+	}
+	return
+}
+
+func (w World) nextJumpPointRightUp(cur *Node, stop int) (res []*Node, isFind bool) {
+	jumpRight, ok1 := w.searchJumpPointDir(cur, DirRight, stop)
+	if ok1 {
+		res = append(res, jumpRight[0])
+	}
+	jumpUp, ok2 := w.searchJumpPointDir(cur, DirUp, stop)
+	if ok2 {
+		res = append(res, jumpUp[0])
+	}
+	if ok1 || ok2 || w.isJumpPointRightUp(cur) {
 		isFind = true
 		res = append(res, cur)
 	}
@@ -385,64 +448,15 @@ func (w World) nextJumpPointLeftDown(cur *Node, stop int) (res []*Node, isFind b
 func (w World) nextJumpPointRightDown(cur *Node, stop int) (res []*Node, isFind bool) {
 	jumpRight, ok1 := w.searchJumpPointDir(cur, DirRight, stop)
 	if ok1 {
-		isFind = true
-		res = append(res, jr[0])
+		res = append(res, jumpRight[0])
 	}
-
 	jumpDown, ok2 := w.searchJumpPointDir(cur, DirDown, stop)
 	if ok2 {
-		isFind = true
-		res = append(res, jd[0])
+		res = append(res, jumpDown[0])
 	}
-	if w.isJumpPointRightDown(cur, stop) {
+	if ok1 || ok2 || w.isJumpPointRightDown(cur) {
 		isFind = true
 		res = append(res, cur)
 	}
 	return
 }
-
-func (w World) nextJumpPointLeftUp(cur *Node, stop int) (res []*Node, ok bool) {
-	jumpLeft, ok1 := w.searchJumpPointDir(cur, DirLeft, stop)
-	if ok {
-		for _, jl := range jumpLeft {
-			res = append(res, jl)
-		}
-	}
-
-	jumpUp, ok2 := w.searchJumpPointDir(cur, DirUp, stop)
-	if ok {
-		for _, ju := range jumpUp {
-			res = append(res, ju)
-		}
-	}
-	ok = ok1 || ok2
-	return
-}
-
-func (w World) nextJumpPointLeftDown(cur *Node, stop int) (res []*Node, ok bool) {
-	jumpLeft, ok1 := w.searchJumpPointDir(cur, DirLeft, stop)
-	if ok {
-		for _, jl := range jumpLeft {
-			res = append(res, jl)
-		}
-	}
-
-	jumpDown, ok2 := w.searchJumpPointDir(cur, DirDown, stop)
-	if ok {
-		for _, jd := range jumpDown {
-			res = append(res, jd)
-		}
-	}
-	ok = ok1 || ok2
-	return
-}
-
-// func makeJumpPoint(cur c, parent int, dir int, stop int) *Node {
-// 	jump := NewNode(cur)
-// 	jump.parent = parent
-// 	jump.dir = dir
-// 	jump.g = gradeDistance(cur, parent, dir)
-// 	jump.h = heuristicDistance(cur, stop)
-// 	jump.f = jump.g + jump.h
-// 	return jump
-// }
