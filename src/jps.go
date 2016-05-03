@@ -32,7 +32,7 @@ const (
 	COST_STRAIGHT = 1000
 	COST_DIAGONAL = 1414
 
-	MapWidth = 100
+	MapWidth = 3000
 )
 
 const (
